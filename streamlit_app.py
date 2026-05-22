@@ -34,20 +34,22 @@ def check_backend_health(backend_url):
 
 
 default_backend = get_default_backend_url()
+backend_url = st.text_input(
+    'Backend URL',
+    value=default_backend,
+    placeholder='https://your-backend.example.com',
+    help='Set this in Streamlit secrets as BACKEND_URL or type it here for the current session.',
+).strip()
 
-if not default_backend:
-    st.error('Set BACKEND_URL in Streamlit secrets or as an environment variable before using the app.')
-    st.caption('Example: BACKEND_URL = "https://your-backend.example.com"')
-    st.stop()
-
-backend_url = default_backend
-
-health_ok, health_info = check_backend_health(backend_url)
-if health_ok:
-    chroma_state = 'connected' if health_info.get('chromaConnected') else 'not connected'
-    st.success(f'Backend online: {backend_url.rstrip("/")} | ChromaDB: {chroma_state}')
+if backend_url:
+    health_ok, health_info = check_backend_health(backend_url)
+    if health_ok:
+        chroma_state = 'connected' if health_info.get('chromaConnected') else 'not connected'
+        st.success(f'Backend online: {backend_url.rstrip("/")} | ChromaDB: {chroma_state}')
+    else:
+        st.warning(f'Backend check failed for {backend_url.rstrip("/")}: {health_info}')
 else:
-    st.warning(f'Backend check failed for {backend_url.rstrip("/")}: {health_info}')
+    st.info('Enter a backend URL to enable health checks and summarization.')
 
 st.markdown('Enter text below or upload a file and click **Summarize**. The app will stream tokens from the backend.')
 
