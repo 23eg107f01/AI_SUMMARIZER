@@ -124,6 +124,44 @@ def check_backend_health(backend_url):
         return False, str(error)
 
 
+def call_groq_once(prompt, max_tokens=800):
+    groq_key = os.getenv('GROQ_API_KEY', '')
+    try:
+        groq_key = st.secrets.get('GROQ_API_KEY', groq_key)
+    except Exception:
+        pass
+
+    if not groq_key:
+        raise RuntimeError('GROQ_API_KEY is not set in environment or Streamlit secrets')
+
+    groq_url = os.getenv('GROQ_API_URL', 'https://api.groq.com/openai/v1/chat/completions')
+
+    body = {
+        'model': os.getenv('GROQ_MODEL', 'llama-3.1-8b-instant'),
+        'messages': [
+            {
+                'role': 'user',
+                'content': prompt,
+            }
+        ],
+        'max_tokens': max_tokens,
+        'temperature': 0.2,
+    }
+
+    resp = requests.post(groq_url, json=body, headers={
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {groq_key}',
+    }, timeout=60)
+
+    if not resp.ok:
+        txt = resp.text or 'Groq API error'
+        raise RuntimeError(f'Groq API error: {txt}')
+
+    data = resp.json()
+    text = data.get('choices', [{}])[0].get('message', {}).get('content') or data.get('choices', [{}])[0].get('text', '')
+    return text
+
+
 default_backend = get_default_backend_url()
 backend_url = st.text_input(
     'Backend URL',
@@ -172,6 +210,7 @@ with top_right:
     )
 
 status_col1, status_col2, status_col3 = st.columns([1.15, 1, 1])
+all_in_one = st.checkbox('All-in-One: run summarization inside Streamlit (requires GROQ_API_KEY in secrets)', value=False)
 if backend_url:
     health_ok, health_info = check_backend_health(backend_url)
     with status_col1:
@@ -186,7 +225,7 @@ if backend_url:
         else:
             st.metric('ChromaDB', 'unknown')
     with status_col3:
-        st.metric('Mode', 'Streaming')
+        st.metric('Mode', 'All-in-One' if all_in_one else 'Streaming')
 else:
     with status_col1:
         st.info('Enter a backend URL to enable health checks and summarization.')
@@ -244,7 +283,21 @@ def parse_sse(response):
             data = f"{data}\n{part}" if data else part
 
 
-def stream_summary(backend_url, payload):
+def stream_summary(backend_url, payload, all_in_one=False):
+    if all_in_one:
+        # Run the summarization inside Streamlit via Groq API
+        prompt = f"""You are a precise content summarizer. Preserve factual accuracy. Never hallucinate. If unsure about a fact, omit it. Format: {payload.get('format')}. Tone: {payload.get('tone')}. Length: {payload.get('length')}.
+
+    {payload.get('text')}"""
+        try:
+            with st.spinner('Summarizing with Groq...'):
+                result = call_groq_once(prompt, max_tokens=800)
+            return result, False
+        except Exception as e:
+            st.error(f'Groq summarization failed: {e}')
+            return None, True
+
+    # Fallback: call the external backend via SSE
     url = backend_url.rstrip('/') + '/api/summarize'
     try:
         resp = requests.post(url, json=payload, stream=True, timeout=None)
@@ -293,7 +346,7 @@ if submit:
             'format': format_opt,
             'tone': tone,
         }
-        summary, failed = stream_summary(backend_url, payload)
+        summary, failed = stream_summary(backend_url, payload, all_in_one=all_in_one)
         if summary and not failed:
             st.success('Summary complete')
             with st.container(border=True):
