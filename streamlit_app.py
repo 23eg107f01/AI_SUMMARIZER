@@ -20,6 +20,19 @@ def get_default_backend_url():
     return backend_url
 
 
+@st.cache_data(ttl=30)
+def check_backend_health(backend_url):
+    url = backend_url.rstrip('/') + '/api/health'
+
+    try:
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        payload = response.json()
+        return True, payload
+    except Exception as error:
+        return False, str(error)
+
+
 default_backend = get_default_backend_url()
 
 if not default_backend:
@@ -28,6 +41,13 @@ if not default_backend:
     st.stop()
 
 backend_url = default_backend
+
+health_ok, health_info = check_backend_health(backend_url)
+if health_ok:
+    chroma_state = 'connected' if health_info.get('chromaConnected') else 'not connected'
+    st.success(f'Backend online: {backend_url.rstrip("/")} | ChromaDB: {chroma_state}')
+else:
+    st.warning(f'Backend check failed for {backend_url.rstrip("/")}: {health_info}')
 
 st.markdown('Enter text below or upload a file and click **Summarize**. The app will stream tokens from the backend.')
 
