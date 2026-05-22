@@ -20,9 +20,14 @@ def get_default_backend_url():
     return backend_url
 
 
-# Backend URL can be provided via BACKEND_URL or Streamlit secrets, or entered here.
 default_backend = get_default_backend_url()
-backend_url = st.text_input('Backend base URL (e.g. https://your-backend.example.com)', value=default_backend)
+
+if not default_backend:
+    st.error('Set BACKEND_URL in Streamlit secrets or as an environment variable before using the app.')
+    st.caption('Example: BACKEND_URL = "https://your-backend.example.com"')
+    st.stop()
+
+backend_url = default_backend
 
 st.markdown('Enter text below or upload a file and click **Summarize**. The app will stream tokens from the backend.')
 
