@@ -1,6 +1,7 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const { traceable } = require('langsmith/traceable');
+const { storeSummaryRecord } = require('../db/chroma');
 
 const router = express.Router();
 const GROQ_API_URL = process.env.GROQ_API_URL || 'https://api.groq.com/openai/v1/chat/completions';
@@ -162,12 +163,36 @@ router.post('/api/compare', async (req, res) => {
 
       res.write(`event: document-done\ndata: ${JSON.stringify({ index, name, summary, wordCount: wordCount(summary) })}\n\n`);
       summaries.push({ name, summary });
+
+      await storeSummaryRecord({
+        id: `comparison_doc_${Date.now()}_${index}`,
+        document: summary,
+        metadata: {
+          type: 'comparison-document-summary',
+          name,
+          index,
+          wordCount: wordCount(summary),
+        },
+      }).catch((error) => {
+        console.warn('Failed to persist comparison document summary to ChromaDB:', error && error.message ? error.message : error);
+      });
     }
 
     let combined = '';
     await tracedRunCombinedAnalysis(summaries, (token) => {
       combined += token;
       res.write(`event: analysis-token\ndata: ${JSON.stringify({ token })}\n\n`);
+    });
+
+    await storeSummaryRecord({
+      id: `comparison_analysis_${Date.now()}`,
+      document: combined,
+      metadata: {
+        type: 'comparison-analysis',
+        documentCount: docs.length,
+      },
+    }).catch((error) => {
+      console.warn('Failed to persist comparison analysis to ChromaDB:', error && error.message ? error.message : error);
     });
 
     res.write(`event: analysis-done\ndata: ${JSON.stringify({ summary: combined })}\n\n`);

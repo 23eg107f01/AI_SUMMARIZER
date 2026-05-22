@@ -1,6 +1,7 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const { traceable } = require('langsmith/traceable');
+const { storeSummaryRecord } = require('../db/chroma');
 
 const router = express.Router();
 const GROQ_API_URL = process.env.GROQ_API_URL || 'https://api.groq.com/openai/v1/chat/completions';
@@ -140,6 +141,21 @@ router.post('/api/summarize', async (req, res) => {
     });
 
     const summaryWordCount = wordCount(summary);
+
+    await storeSummaryRecord({
+      id: `summary_${Date.now()}`,
+      document: summary,
+      metadata: {
+        type: 'summary',
+        originalWordCount,
+        summaryWordCount,
+        length,
+        format,
+        tone,
+      },
+    }).catch((error) => {
+      console.warn('Failed to persist summary to ChromaDB:', error && error.message ? error.message : error);
+    });
 
     res.write(`event: done\ndata: ${JSON.stringify({ summary, wordCounts: { original: originalWordCount, summary: summaryWordCount } })}\n\n`);
     res.end();
