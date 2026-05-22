@@ -159,13 +159,6 @@ with top_left:
         ''',
         unsafe_allow_html=True,
     )
-    st.text_input(
-        'Backend URL',
-        value=backend_url,
-        placeholder='https://your-backend.example.com',
-        help='Set this in Streamlit secrets as BACKEND_URL or type it here for the current session.',
-        key='backend_url_input',
-    )
 
 with top_right:
     st.markdown(
@@ -177,8 +170,6 @@ with top_right:
         ''',
         unsafe_allow_html=True,
     )
-
-backend_url = st.session_state.get('backend_url_input', backend_url).strip()
 
 status_col1, status_col2, status_col3 = st.columns([1.15, 1, 1])
 if backend_url:
