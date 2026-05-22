@@ -2,6 +2,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 
 const router = express.Router();
+const langsmith = require('../langsmith');
 const GROQ_API_URL = process.env.GROQ_API_URL || 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
 
@@ -97,6 +98,16 @@ router.post('/api/summarize', async (req, res) => {
     res.flushHeaders();
   }
 
+  // Send a start trace to LangSmith (best-effort)
+  try {
+    await langsmith.sendTrace({
+      name: 'summarize.request',
+      payload: { length, format, tone, originalWordCount, snippet: truncatedText.slice(0, 200) },
+    });
+  } catch (e) {
+    console.warn('LangSmith trace error (start):', e && e.message ? e.message : e);
+  }
+
   try {
     let summary = '';
     await streamSummary({
@@ -110,9 +121,31 @@ router.post('/api/summarize', async (req, res) => {
       },
     });
 
-    res.write(`event: done\ndata: ${JSON.stringify({ summary, wordCounts: { original: originalWordCount, summary: wordCount(summary) } })}\n\n`);
+    const summaryWordCount = wordCount(summary);
+
+    // Send finish trace
+    try {
+      await langsmith.sendTrace({
+        name: 'summarize.finished',
+        payload: { summary: summary.slice(0, 2000), original: originalWordCount, summaryWords: summaryWordCount },
+      });
+    } catch (e) {
+      console.warn('LangSmith trace error (finish):', e && e.message ? e.message : e);
+    }
+
+    res.write(`event: done\ndata: ${JSON.stringify({ summary, wordCounts: { original: originalWordCount, summary: summaryWordCount } })}\n\n`);
     res.end();
   } catch (error) {
+    // Send error trace
+    try {
+      await langsmith.sendTrace({
+        name: 'summarize.error',
+        payload: { message: error.message || 'Summarization failed.' },
+      });
+    } catch (e) {
+      console.warn('LangSmith trace error (error):', e && e.message ? e.message : e);
+    }
+
     res.write(`event: error\ndata: ${JSON.stringify({ error: error.message || 'Summarization failed.' })}\n\n`);
     res.end();
   }
