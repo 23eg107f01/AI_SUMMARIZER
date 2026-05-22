@@ -51,8 +51,8 @@ async function startServer() {
       await connectMongo();
       console.log('MongoDB connection established.');
     } catch (error) {
-      console.error('Failed to connect to MongoDB:', error.message || error);
-      process.exit(1);
+      console.warn('Failed to connect to MongoDB:', error.message || error);
+      console.warn('Starting backend without MongoDB so the app remains available.');
     }
   } else {
     console.log('MONGODB_URI not set; starting without MongoDB connection.');

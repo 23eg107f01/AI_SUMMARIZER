@@ -29,7 +29,11 @@ async function connectMongo() {
   }
 
   client = new MongoClient(uri, getMongoOptions());
-  clientPromise = client.connect().then(() => client);
+  clientPromise = client.connect().then(() => client).catch((error) => {
+    client = undefined;
+    clientPromise = undefined;
+    throw error;
+  });
 
   return clientPromise;
 }
