@@ -5,9 +5,100 @@ import requests
 import streamlit as st
 
 
-st.set_page_config(page_title='AI Summarizer', layout='wide')
+st.set_page_config(page_title='AI Summarizer', page_icon='✦', layout='wide', initial_sidebar_state='collapsed')
 
-st.title('AI Summarizer — Streamlit Frontend')
+st.markdown(
+        '''
+        <style>
+            .stApp {
+                background:
+                    radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 28%),
+                    radial-gradient(circle at top right, rgba(16, 185, 129, 0.10), transparent 24%),
+                    linear-gradient(180deg, #f8fbff 0%, #ffffff 28%, #f7f9fc 100%);
+            }
+
+            .block-container {
+                padding-top: 2rem;
+                padding-bottom: 2rem;
+                max-width: 1240px;
+            }
+
+            .hero {
+                padding: 1.6rem 1.75rem;
+                border: 1px solid rgba(148, 163, 184, 0.22);
+                border-radius: 24px;
+                background: rgba(255, 255, 255, 0.78);
+                backdrop-filter: blur(18px);
+                box-shadow: 0 22px 70px rgba(15, 23, 42, 0.08);
+                margin-bottom: 1rem;
+            }
+
+            .hero h1 {
+                margin: 0;
+                font-size: 2.2rem;
+                line-height: 1.05;
+                color: #0f172a;
+            }
+
+            .hero p {
+                margin: 0.65rem 0 0;
+                color: #475569;
+                font-size: 1rem;
+            }
+
+            .pill-row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                margin-top: 1rem;
+            }
+
+            .pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.45rem;
+                border-radius: 999px;
+                padding: 0.45rem 0.8rem;
+                background: rgba(15, 23, 42, 0.05);
+                color: #334155;
+                font-size: 0.88rem;
+                font-weight: 600;
+            }
+
+            .card {
+                padding: 1rem 1rem 0.85rem;
+                border: 1px solid rgba(148, 163, 184, 0.18);
+                border-radius: 22px;
+                background: rgba(255, 255, 255, 0.84);
+                box-shadow: 0 14px 42px rgba(15, 23, 42, 0.05);
+            }
+
+            .card h3 {
+                margin: 0 0 0.35rem;
+                font-size: 1.05rem;
+                color: #0f172a;
+            }
+
+            .card .subtle {
+                color: #64748b;
+                font-size: 0.92rem;
+                margin: 0 0 0.9rem;
+            }
+
+            .summary-box {
+                padding: 1rem 1.15rem;
+                border-radius: 18px;
+                border: 1px solid rgba(148, 163, 184, 0.16);
+                background: linear-gradient(180deg, rgba(248, 250, 252, 0.88), rgba(255, 255, 255, 0.96));
+            }
+
+            .streamlit-expanderHeader {
+                font-weight: 600;
+            }
+        </style>
+        ''',
+        unsafe_allow_html=True,
+)
 
 def get_default_backend_url():
     backend_url = os.getenv('BACKEND_URL', '')
@@ -41,22 +132,86 @@ backend_url = st.text_input(
     help='Set this in Streamlit secrets as BACKEND_URL or type it here for the current session.',
 ).strip()
 
+st.markdown(
+    '''
+    <div class="hero">
+      <h1>AI Summarizer</h1>
+      <p>Paste text or upload a file, then generate a clean summary through your backend.</p>
+      <div class="pill-row">
+        <span class="pill">Fast streaming output</span>
+        <span class="pill">Backend health check</span>
+        <span class="pill">File upload support</span>
+      </div>
+    </div>
+    ''',
+    unsafe_allow_html=True,
+)
+
+top_left, top_right = st.columns([2, 1])
+
+with top_left:
+    st.markdown(
+        '''
+        <div class="card">
+          <h3>Connection</h3>
+          <p class="subtle">Point the app at your public backend. The status below updates automatically.</p>
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+    st.text_input(
+        'Backend URL',
+        value=backend_url,
+        placeholder='https://your-backend.example.com',
+        help='Set this in Streamlit secrets as BACKEND_URL or type it here for the current session.',
+        key='backend_url_input',
+    )
+
+with top_right:
+    st.markdown(
+        '''
+        <div class="card">
+          <h3>Quick tips</h3>
+          <p class="subtle">Use a public backend URL, then keep Streamlit secrets in sync with your deployment.</p>
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+
+backend_url = st.session_state.get('backend_url_input', backend_url).strip()
+
+status_col1, status_col2, status_col3 = st.columns([1.15, 1, 1])
 if backend_url:
     health_ok, health_info = check_backend_health(backend_url)
-    if health_ok:
-        chroma_state = 'connected' if health_info.get('chromaConnected') else 'not connected'
-        st.success(f'Backend online: {backend_url.rstrip("/")} | ChromaDB: {chroma_state}')
-    else:
-        st.warning(f'Backend check failed for {backend_url.rstrip("/")}: {health_info}')
+    with status_col1:
+        if health_ok:
+            st.success(f'Backend online: {backend_url.rstrip("/")}')
+        else:
+            st.warning(f'Backend check failed: {health_info}')
+    with status_col2:
+        if health_ok:
+            chroma_state = 'connected' if health_info.get('chromaConnected') else 'not connected'
+            st.metric('ChromaDB', chroma_state)
+        else:
+            st.metric('ChromaDB', 'unknown')
+    with status_col3:
+        st.metric('Mode', 'Streaming')
 else:
-    st.info('Enter a backend URL to enable health checks and summarization.')
+    with status_col1:
+        st.info('Enter a backend URL to enable health checks and summarization.')
+    with status_col2:
+        st.metric('ChromaDB', 'unknown')
+    with status_col3:
+        st.metric('Mode', 'Idle')
 
-st.markdown('Enter text below or upload a file and click **Summarize**. The app will stream tokens from the backend.')
+st.markdown('---')
 
-col1, col2 = st.columns([3, 1])
+st.markdown('''<div class="card"><h3>Summarize content</h3><p class="subtle">Choose the tone and output style, then stream the summary from the backend.</p></div>''', unsafe_allow_html=True)
 
-with col1:
-    text = st.text_area('Text to summarize', height=300)
+input_col, options_col = st.columns([2.1, 1])
+
+with input_col:
+    text = st.text_area('Text to summarize', height=320, placeholder='Paste text here or upload a file on the right.')
     uploaded_file = st.file_uploader('Or upload a text file', type=['txt', 'md'])
     if uploaded_file and not text:
         try:
@@ -65,11 +220,11 @@ with col1:
         except Exception:
             text = str(uploaded_file.read())
 
-with col2:
+with options_col:
     length = st.selectbox('Length', ['Short', 'Medium', 'Long'], index=1)
     format_opt = st.selectbox('Format', ['Paragraph', 'Bulleted', 'Headlines'], index=0)
     tone = st.selectbox('Tone', ['Neutral', 'Formal', 'Casual'], index=0)
-    submit = st.button('Summarize')
+    submit = st.button('Summarize', use_container_width=True, type='primary')
 
 
 def parse_sse(response):
@@ -150,6 +305,7 @@ if submit:
         summary, failed = stream_summary(backend_url, payload)
         if summary and not failed:
             st.success('Summary complete')
-            st.write('---')
-            st.subheader('Final Summary')
-            st.write(summary)
+            with st.container(border=True):
+                st.subheader('Final Summary')
+                st.caption('Your streamed result is shown below.')
+                st.markdown(summary)
