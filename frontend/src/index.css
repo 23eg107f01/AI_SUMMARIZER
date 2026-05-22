@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+:root.dark {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  font-family: 'Segoe UI', 'Trebuchet MS', 'Avenir Next', sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(99, 102, 241, 0.08), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.08), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 250, 251, 1));
+}
+
+.dark body {
+  background:
+    radial-gradient(circle at top, rgba(99, 102, 241, 0.14), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.12), transparent 26%),
+    linear-gradient(180deg, rgba(17, 24, 39, 1), rgba(3, 7, 18, 1));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: rgba(99, 102, 241, 0.25);
+}
+
+@keyframes floaty {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-floaty {
+  animation: floaty 8s ease-in-out infinite;
+}
