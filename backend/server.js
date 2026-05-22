@@ -7,6 +7,7 @@ const compareRoute = require('./routes/compare');
 const extractUrlRoute = require('./routes/extractUrl');
 const parseFileRoute = require('./routes/parseFile');
 const rateLimit = require('./middleware/rateLimit');
+const { connectMongo, getMongoClient } = require('./db/mongo');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -22,7 +23,7 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(rateLimit);
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true });
+  res.json({ ok: true, mongoConnected: Boolean(getMongoClient()) });
 });
 
 app.use(summarizeRoute);
@@ -42,6 +43,24 @@ app.use((err, req, res, next) => {
   return res.status(500).json({ error: 'An unexpected error occurred.' });
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+async function startServer() {
+  const mongoUri = process.env.MONGODB_URI || '';
+
+  if (mongoUri) {
+    try {
+      await connectMongo();
+      console.log('MongoDB connection established.');
+    } catch (error) {
+      console.error('Failed to connect to MongoDB:', error.message || error);
+      process.exit(1);
+    }
+  } else {
+    console.log('MONGODB_URI not set; starting without MongoDB connection.');
+  }
+
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
+
+startServer();
