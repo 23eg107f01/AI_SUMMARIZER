@@ -1,5 +1,6 @@
 const express = require('express');
 const fetch = require('node-fetch');
+const { traceable } = require('langsmith/traceable');
 
 const router = express.Router();
 const GROQ_API_URL = process.env.GROQ_API_URL || 'https://api.groq.com/openai/v1/chat/completions';
@@ -58,6 +59,20 @@ async function callGroqOnce(prompt, maxTokens = 1024) {
   return text;
 }
 
+const tracedCallGroqOnce = traceable(callGroqOnce, {
+  name: 'groq.chat.completions',
+  run_type: 'llm',
+  getInvocationParams: (_prompt, maxTokens = 1024) => ({
+    provider: 'groq',
+    model: GROQ_MODEL,
+    max_tokens: maxTokens,
+  }),
+  processInputs: (inputs) => ({
+    promptLength: String(inputs?.args?.[0] || '').length,
+    maxTokens: inputs?.args?.[1],
+  }),
+});
+
 function wordCount(text) {
   return text ? text.trim().split(/\s+/).filter(Boolean).length : 0;
 }
@@ -74,7 +89,7 @@ function emitChunkedText(text, onToken, chunkSize = 200) {
 
 async function summarizeDocument(text, label, onToken) {
   const prompt = `You are a precise content summarizer. Preserve factual accuracy. Never hallucinate. If unsure about a fact, omit it. Provide a concise but useful document summary.\n\nSummarize the document labeled ${label}. Keep the summary concise and factual.\n\n${text}`;
-  const result = await callGroqOnce(prompt, 700);
+  const result = await tracedCallGroqOnce(prompt, 700);
 
   // Simulate streaming by chunking the result
   emitChunkedText(result, onToken);
@@ -84,12 +99,35 @@ async function summarizeDocument(text, label, onToken) {
 
 async function runCombinedAnalysis(summaries, onToken) {
   const prompt = `You are a research analyst. Given multiple document summaries produce exactly three labeled sections: OVERLAPS: bullet list of shared themes. DIFFERENCES: bullet list of key contrasts. TAKEAWAYS: 1 to 2 bold unified insights. Label each section in uppercase exactly as shown.\n\nAnalyze these document summaries and produce the required three-section response.\n\n${summaries.map((item) => `${item.name}:\n${item.summary}`).join('\n\n---\n\n')}`;
-  const result = await callGroqOnce(prompt, 700);
+  const result = await tracedCallGroqOnce(prompt, 700);
 
   emitChunkedText(result, onToken);
 
   return result;
 }
+
+const tracedSummarizeDocument = traceable(summarizeDocument, {
+  name: 'compare.document_summary',
+  run_type: 'chain',
+  processInputs: (inputs) => ({
+    textLength: String(inputs?.text || '').length,
+    label: inputs?.label,
+  }),
+  processOutputs: (outputs) => ({
+    summaryLength: String(outputs?.outputs || '').length,
+  }),
+});
+
+const tracedRunCombinedAnalysis = traceable(runCombinedAnalysis, {
+  name: 'compare.analysis',
+  run_type: 'chain',
+  processInputs: (inputs) => ({
+    summaryCount: Array.isArray(inputs?.summaries) ? inputs.summaries.length : 0,
+  }),
+  processOutputs: (outputs) => ({
+    analysisLength: String(outputs?.outputs || '').length,
+  }),
+});
 
 router.post('/api/compare', async (req, res) => {
   const docs = Array.isArray(req.body?.docs) ? req.body.docs : [];
@@ -117,7 +155,7 @@ router.post('/api/compare', async (req, res) => {
       res.write(`event: document-start\ndata: ${JSON.stringify({ index, name })}\n\n`);
 
       let summary = '';
-      await summarizeDocument(text, name, (token) => {
+      await tracedSummarizeDocument(text, name, (token) => {
         summary += token;
         res.write(`event: document-token\ndata: ${JSON.stringify({ index, token })}\n\n`);
       });
@@ -127,7 +165,7 @@ router.post('/api/compare', async (req, res) => {
     }
 
     let combined = '';
-    await runCombinedAnalysis(summaries, (token) => {
+    await tracedRunCombinedAnalysis(summaries, (token) => {
       combined += token;
       res.write(`event: analysis-token\ndata: ${JSON.stringify({ token })}\n\n`);
     });

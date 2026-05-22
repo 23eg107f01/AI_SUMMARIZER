@@ -1,8 +1,8 @@
 const express = require('express');
 const fetch = require('node-fetch');
+const { traceable } = require('langsmith/traceable');
 
 const router = express.Router();
-const langsmith = require('../langsmith');
 const GROQ_API_URL = process.env.GROQ_API_URL || 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
 
@@ -58,6 +58,20 @@ async function callGroqOnce(prompt, maxTokens = 1024) {
   return text;
 }
 
+const tracedCallGroqOnce = traceable(callGroqOnce, {
+  name: 'groq.chat.completions',
+  run_type: 'llm',
+  getInvocationParams: (_prompt, maxTokens = 1024) => ({
+    provider: 'groq',
+    model: GROQ_MODEL,
+    max_tokens: maxTokens,
+  }),
+  processInputs: (inputs) => ({
+    promptLength: String(inputs?.args?.[0] || '').length,
+    maxTokens: inputs?.args?.[1],
+  }),
+});
+
 function wordCount(text) {
   return text ? text.trim().split(/\s+/).filter(Boolean).length : 0;
 }
@@ -74,12 +88,26 @@ function emitChunkedText(text, onToken, chunkSize = 200) {
 
 async function streamSummary({ text, length, format, tone, onToken }) {
   const prompt = `You are a precise content summarizer. Preserve factual accuracy. Never hallucinate. If unsure about a fact, omit it. Format: ${format}. Tone: ${tone}. Length: ${length}.\n\n${text}`;
-  const result = await callGroqOnce(prompt, 800);
+  const result = await tracedCallGroqOnce(prompt, 800);
 
   emitChunkedText(result, onToken);
 
   return result;
 }
+
+const tracedStreamSummary = traceable(streamSummary, {
+  name: 'summarize.document',
+  run_type: 'chain',
+  processInputs: (inputs) => ({
+    textLength: String(inputs?.text || '').length,
+    length: inputs?.length,
+    format: inputs?.format,
+    tone: inputs?.tone,
+  }),
+  processOutputs: (outputs) => ({
+    summaryLength: String(outputs?.outputs || '').length,
+  }),
+});
 
 router.post('/api/summarize', async (req, res) => {
   const { text = '', length = 'Medium', format = 'Paragraph', tone = 'Neutral' } = req.body || {};
@@ -98,19 +126,9 @@ router.post('/api/summarize', async (req, res) => {
     res.flushHeaders();
   }
 
-  // Send a start trace to LangSmith (best-effort)
-  try {
-    await langsmith.sendTrace({
-      name: 'summarize.request',
-      payload: { length, format, tone, originalWordCount, snippet: truncatedText.slice(0, 200) },
-    });
-  } catch (e) {
-    console.warn('LangSmith trace error (start):', e && e.message ? e.message : e);
-  }
-
   try {
     let summary = '';
-    await streamSummary({
+    await tracedStreamSummary({
       text: truncatedText,
       length,
       format,
@@ -123,29 +141,9 @@ router.post('/api/summarize', async (req, res) => {
 
     const summaryWordCount = wordCount(summary);
 
-    // Send finish trace
-    try {
-      await langsmith.sendTrace({
-        name: 'summarize.finished',
-        payload: { summary: summary.slice(0, 2000), original: originalWordCount, summaryWords: summaryWordCount },
-      });
-    } catch (e) {
-      console.warn('LangSmith trace error (finish):', e && e.message ? e.message : e);
-    }
-
     res.write(`event: done\ndata: ${JSON.stringify({ summary, wordCounts: { original: originalWordCount, summary: summaryWordCount } })}\n\n`);
     res.end();
   } catch (error) {
-    // Send error trace
-    try {
-      await langsmith.sendTrace({
-        name: 'summarize.error',
-        payload: { message: error.message || 'Summarization failed.' },
-      });
-    } catch (e) {
-      console.warn('LangSmith trace error (error):', e && e.message ? e.message : e);
-    }
-
     res.write(`event: error\ndata: ${JSON.stringify({ error: error.message || 'Summarization failed.' })}\n\n`);
     res.end();
   }
