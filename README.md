@@ -37,61 +37,88 @@ If you want the frontend and backend on the same domain in production, build the
 - Rate limited to 10 requests per minute
 - Streaming requires a stable internet connection
 
-## Deploy on Streamlit Cloud
+## Deploy on Vercel
 
-1. Deploy the backend first.
-	- Use any Node.js host that supports long-lived SSE responses, such as Render, Railway, Fly.io, or a small VPS.
-	- Set `GROQ_API_KEY` in the backend environment.
-	- Set `ALLOWED_ORIGIN` to your Streamlit app URL after the Streamlit app is deployed.
+Use the repository root as the Vercel project root.
 
-2. Make sure the backend is reachable from the public internet.
-	- Confirm the backend health endpoint works, for example `https://your-backend.example.com/health`.
-	- Confirm `/api/summarize` accepts POST requests from the browser.
+1. Import the GitHub repository into Vercel.
+	- Keep the root directory as `./`.
+	- Choose the Node preset.
 
-3. Deploy the Streamlit app.
-	- Push this repo to GitHub.
-	- In Streamlit Community Cloud, choose the repository and set the app file path to `streamlit_app.py`.
-	- Ensure `requirements.txt` is at the repo root so Streamlit installs `streamlit` and `requests`.
+2. Set environment variables in Vercel.
+	- `GROQ_API_KEY` is required.
+	- `GROQ_API_URL` is optional.
+	- `GROQ_MODEL` is optional.
+	- `ALLOWED_ORIGIN` should be your Vercel deployment URL if you want a strict CORS allowlist.
+	- Add `CHROMA_API_KEY`, `CHROMA_TENANT`, and `CHROMA_DATABASE` only if you want persistence.
 
-4. Configure the backend URL for Streamlit.
-	- In Streamlit Cloud secrets, add `BACKEND_URL = "https://your-backend.example.com"`.
-	- You can also set `BACKEND_URL` as an environment variable if you are running Streamlit elsewhere.
+3. Deploy.
+	- Vercel uses the root [package.json](../package.json) and [vercel.json](../vercel.json).
+	- The frontend is built from `summarizer-app/frontend` into `summarizer-app/frontend/dist`.
+	- The API is served from `/api/*` via the root [api/[...path].js](../api/%5B...path%5D.js).
 
-5. Add backend CORS access.
-	- Set `ALLOWED_ORIGIN` on the backend to your Streamlit Cloud app URL.
-	- Redeploy the backend after updating the origin.
-
-6. Test the deployed app.
-	- Open the Streamlit URL.
-	- Paste text, choose the summary options, and click Summarize.
-	- If the request fails, verify the backend URL and the backend logs first.
+4. Verify the deployment.
+	- Open the Vercel URL.
+	- Confirm `/api/health` returns JSON.
+	- Try a summary and a comparison request from the UI.
 
 ## Deployment Notes
-- The Streamlit app is only the frontend shell; the summarization logic still runs in the backend.
-- The backend must stay online for the Streamlit app to work.
+- The app is now a single Vite frontend plus a Node backend.
+## Deploy on Vercel (root-first)
 
-## Deploy Frontend and Backend Together
+This repo is configured to deploy as a single project on Vercel: the Vite frontend is built from `summarizer-app/frontend` and the Node backend is exposed via serverless functions under `/api/*`.
 
-Use this when you want one public URL for the whole app.
+Quick checklist (what Vercel should see):
+- Root: repository root (keep `./` selected when importing).
+- Preset: Node (do NOT select Python/Streamlit).
+- Build command: `npm run build` (root `package.json` defines it).
+- Output directory: `summarizer-app/frontend/dist` (also set in `vercel.json`).
 
-1. Build the frontend.
-	- From `frontend`, run `npm install` and `npm run build`.
-	- This creates `frontend/dist`.
+Environment variables (add in Project Settings → Environment Variables):
+- `GROQ_API_KEY` — required
+- `GROQ_MODEL` — optional (override model)
+- `GROQ_API_URL` — optional (custom Groq endpoint)
+- `ALLOWED_ORIGIN` — optional (set to your Vercel URL to restrict CORS)
+- `CHROMA_API_KEY`, `CHROMA_TENANT`, `CHROMA_DATABASE` — optional (only if you use ChromaDB persistence)
 
-2. Start the backend as the public app server.
-	- Run `cd backend && npm start`.
-	- In production, the backend now serves the React build from `frontend/dist`.
+Deploy steps (summary):
+1. Push your repo to GitHub.
+2. In Vercel, import the repository and choose the repository root (`./`).
+3. Confirm the build command is `npm run build` and the output directory is `summarizer-app/frontend/dist`.
+4. Add the environment variables listed above.
+5. Deploy and verify `/api/health` and the UI.
 
-3. Use the same domain for the UI and API.
-	- Frontend loads from `/`.
-	- API routes stay under `/api/*`.
-	- Health checks are available at `/health` and `/api/health`.
+Local development commands
 
-4. Set production environment variables.
-	- `GROQ_API_KEY` is required.
-	- `ALLOWED_ORIGIN` can be your public app URL, or you can leave it unset if the frontend and backend are truly the same origin.
-	- If you are using ChromaDB, set `CHROMA_API_KEY`, `CHROMA_TENANT`, and `CHROMA_DATABASE`.
+Install dependencies at repo root (hoisted workspace):
 
+```
+npm install
+```
+
+Run backend and frontend locally (two terminals):
+
+```
+# Terminal 1 - backend
+npm --prefix summarizer-app/backend run dev
+
+# Terminal 2 - frontend
+npm --prefix summarizer-app/frontend run dev
+```
+
+Run production build locally (root) and run a local check of the API entrypoint:
+
+```
+# Build frontend and copy SPA fallback
+npm run build
+
+# Quick sanity check for API wrapper (node must be installed)
+node -e "require('./api/[...path]'); console.log('api loaded')"
+```
+
+Notes and caveats
+- Vercel serverless functions may impose execution time limits on long-lived SSE. The Node backend is currently designed to stream SSE responses — if you hit platform limits, you may need to host the backend on a service that supports long-lived connections (Render, Fly, Railway, or a small VPS) and keep the frontend on Vercel.
+- The Streamlit-based deployment path has been removed from this repo to avoid Vercel auto-detection as Python.
 5. Deploy on a platform that supports a build step.
 	- Build command: `cd frontend && npm install && npm run build && cd ../backend && npm install`
 	- Start command: `cd backend && npm start`
